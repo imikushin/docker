@@ -1455,6 +1455,14 @@ func detachMounted(path string) error {
 	return syscall.Unmount(path, syscall.MNT_DETACH)
 }
 
+func (container *Container) resolveMountPoint(destination string) (string, error) {
+	destDir, err := container.GetResourcePath(filepath.Dir(destination))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(destDir, filepath.Base(destination)), nil
+}
+
 func (daemon *Daemon) mountVolumes(container *Container) error {
 	mounts, err := daemon.setupMounts(container)
 	if err != nil {
@@ -1462,9 +1470,15 @@ func (daemon *Daemon) mountVolumes(container *Container) error {
 	}
 
 	for _, m := range mounts {
-		dest, err := container.GetResourcePath(m.Destination)
+		dest, err := container.resolveMountPoint(m.Destination)
 		if err != nil {
 			return err
+		}
+
+		if destStat, err := os.Lstat(dest); err != nil {
+			return err
+		} else if destStat.Mode() & os.ModeSymlink == os.ModeSymlink {
+			os.Remove(dest)
 		}
 
 		var stat os.FileInfo
@@ -1496,7 +1510,7 @@ func (container *Container) unmountVolumes(forceSyscall bool) error {
 	)
 
 	for _, mntPoint := range container.MountPoints {
-		dest, err := container.GetResourcePath(mntPoint.Destination)
+		dest, err := container.resolveMountPoint(mntPoint.Destination)
 		if err != nil {
 			return err
 		}
